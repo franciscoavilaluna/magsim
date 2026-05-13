@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Simulación Imán</title>
+    <style>
+        :root {
+            --neon-blue: #00d2ff;
+            --neon-red: #ff0055;
+            --ui-bg: rgba(10, 15, 28, 0.85);
+            --glass-border: rgba(255, 255, 255, 0.1);
+        }
+
+        body { 
+            margin: 0; 
+            background: radial-gradient(circle at center, #0a0f1c 0%, #000 100%); 
+            overflow: hidden; 
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        }
+
+        #ui { 
+            position: absolute; 
+            top: 25px; 
+            left: 25px; 
+            z-index: 100; 
+            background: var(--ui-bg); 
+            padding: 24px; 
+            border: 1px solid var(--glass-border); 
+            color: #fff; 
+            border-radius: 16px;
+            backdrop-filter: blur(12px);
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5), inset 0 0 20px rgba(0, 210, 255, 0.05);
+            width: 280px;
+            pointer-events: all;
+        }
+
+        h2 { 
+            margin: 0 0 8px 0; 
+            font-size: 14px; 
+            text-transform: uppercase; 
+            letter-spacing: 2px; 
+            color: var(--neon-blue);
+            font-weight: 700;
+        }
+
+        p {
+            margin: 0 0 20px 0;
+            font-size: 11px;
+            color: rgba(255,255,255,0.5);
+            line-height: 1.4;
+        }
+
+        .file-label {
+            display: block;
+            background: linear-gradient(135deg, #1e263a, #0f1420);
+            border: 1px solid var(--glass-border);
+            padding: 12px;
+            border-radius: 8px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 12px;
+            color: #eee;
+        }
+
+        .file-label:hover {
+            border-color: var(--neon-blue);
+            background: rgba(0, 210, 255, 0.1);
+            transform: translateY(-2px);
+        }
+
+        #fileInput { display: none; }
+
+        #status { 
+            font-size: 10px; 
+            margin-top: 15px; 
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            text-transform: uppercase;
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            background: #ffaa00;
+            border-radius: 50%;
+            box-shadow: 0 0 8px #ffaa00;
+        }
+
+        .active .status-dot {
+            background: #00ffaa;
+            box-shadow: 0 0 8px #00ffaa;
+        }
+    </style>
+</head>
+<body>
+
+<div id="ui">
+    <h2>Campos</h2>
+    <p>Visualización de campo con partículas.</p>
+    
+    <label for="fileInput" class="file-label">
+        Cargar datos
+    </label>
+    <input type="file" id="fileInput" accept=".json">
+    
+    <div id="status">
+        <div class="status-dot"></div>
+        <span id="status-text">Sistema en Espera</span>
+    </div>
+</div>
+
+<script type="importmap">
+    { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+let scene, camera, renderer, controls, fieldData = null;
+const NUM_TRAILS = 15000; 
+const TRAIL_LENGTH = 10; 
+const trails = [];
+let lineSegments;
+
+const vertices = new Float32Array(NUM_TRAILS * TRAIL_LENGTH * 3 * 2);
+const colors = new Float32Array(NUM_TRAILS * TRAIL_LENGTH * 3 * 2);
+
+function init() {
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 35000);
+    camera.position.set(2200, 1400, 2200);
+
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    document.body.appendChild(renderer.domElement);
+
+    controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+
+    const magnetGroup = new THREE.Group();
+    const geoHalf = new THREE.BoxGeometry(270, 60, 60);
+    
+    const matN = new THREE.MeshStandardMaterial({ 
+        color: 0xff0044, 
+        emissive: 0xff0044, 
+        emissiveIntensity: 0.2,
+        roughness: 0.3,
+        metalness: 0.8 
+    });
+    const north = new THREE.Mesh(geoHalf, matN);
+    north.position.x = 135;
+    
+    const matS = new THREE.MeshStandardMaterial({ 
+        color: 0x0066ff, 
+        emissive: 0x0066ff, 
+        emissiveIntensity: 0.2,
+        roughness: 0.3,
+        metalness: 0.8 
+    });
+    const south = new THREE.Mesh(geoHalf, matS);
+    south.position.x = -135;
+
+    magnetGroup.add(north, south);
+    scene.add(magnetGroup);
+
+    const ambient = new THREE.AmbientLight(0xffffff, 0.4);
+    const point1 = new THREE.PointLight(0x00d2ff, 10000000);
+    point1.position.set(1500, 1500, 1500);
+    const point2 = new THREE.PointLight(0xff0055, 10000000);
+    point2.position.set(-1500, -1500, -1500);
+    scene.add(ambient, point1, point2);
+
+    const lineGeo = new THREE.BufferGeometry();
+    lineGeo.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+    lineGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    
+    const lineMat = new THREE.LineBasicMaterial({ 
+        vertexColors: true, 
+        transparent: true, 
+        opacity: 0.45, 
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+    });
+    
+    lineSegments = new THREE.LineSegments(lineGeo, lineMat);
+    scene.add(lineSegments);
+
+    for(let i=0; i<NUM_TRAILS; i++) {
+        trails.push({ pos: new THREE.Vector3(), history: [], life: 0 });
+        resetParticle(trails[i]);
+    }
+    animate();
+}
+
+function getPolarColor(pos, mag) {
+    const color = new THREE.Color();
+    const intensity = Math.min(mag * 3.0, 1.0); 
+    
+    if (pos.x > 120) {
+        color.setRGB(1.0, 1.0 - (intensity * 0.8), 1.0 - (intensity * 0.7)); 
+        color.lerp(new THREE.Color(0xff2266), 1 - intensity);
+    } else if (pos.x < -120) {
+        color.setRGB(1.0 - (intensity * 0.7), 1.0 - (intensity * 0.8), 1.0);
+        color.lerp(new THREE.Color(0x00aaff), 1 - intensity);
+    } else {
+    }
+    return color;
+}
+
+function resetParticle(t) {
+    const r = 3800 * Math.pow(Math.random(), 0.5);
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    t.pos.set(r * Math.sin(phi) * Math.cos(theta), r * Math.sin(phi) * Math.sin(theta), r * Math.cos(phi));
+    t.history = [];
+    t.life = 40 + Math.random() * 110;
+}
+
+function getFieldInfo(pos) {
+    if (!fieldData) return { vec: new THREE.Vector3(), mag: 0 };
+    const r = Math.sqrt(pos.y * pos.y + pos.z * pos.z);
+    const angle = Math.atan2(pos.z, pos.y);
+    let bX = 0, bR = 0, wSum = 0;
+
+    for (let i = 0; i < fieldData.rx.length; i += 12) { 
+        const dx = fieldData.rx[i] - pos.x;
+        const dr = fieldData.ry[i] - r;
+        const d2 = dx*dx + dr*dr;
+        if (d2 < 180000) {
+            const w = 1 / (d2 + 1);
+            bX += fieldData.Bx[i] * w;
+            bR += fieldData.By[i] * w;
+            wSum += w;
+        }
+    }
+    if (wSum === 0) return { vec: new THREE.Vector3(0,0,0), mag: 0 };
+    const mX = bX / wSum;
+    const mR = bR / wSum;
+    return { 
+        vec: new THREE.Vector3(mX, mR * Math.cos(angle), mR * Math.sin(angle)).normalize(), 
+        mag: Math.sqrt(mX*mX + mR*mR) 
+    };
+}
+
+function animate() {
+    requestAnimationFrame(animate);
+    if (fieldData) {
+        let vIdx = 0, cIdx = 0;
+        trails.forEach(t => {
+            const info = getFieldInfo(t.pos);
+            t.pos.addScaledVector(info.vec, 22);
+
+            const col = getPolarColor(t.pos, info.mag);
+
+            t.history.push({ p: t.pos.clone(), c: col });
+            if (t.history.length > TRAIL_LENGTH) t.history.shift();
+
+            for (let j = 0; j < t.history.length - 1; j++) {
+                const p1 = t.history[j].p; const p2 = t.history[j+1].p;
+                const c1 = t.history[j].c;
+                vertices[vIdx++] = p1.x; vertices[vIdx++] = p1.y; vertices[vIdx++] = p1.z;
+                vertices[vIdx++] = p2.x; vertices[vIdx++] = p2.y; vertices[vIdx++] = p2.z;
+                colors[cIdx++] = c1.r; colors[cIdx++] = c1.g; colors[cIdx++] = c1.b;
+                colors[cIdx++] = c1.r; colors[cIdx++] = c1.g; colors[cIdx++] = c1.b;
+            }
+            t.life--;
+            const hit = Math.abs(t.pos.x) < 275 && Math.abs(t.pos.y) < 32 && Math.abs(t.pos.z) < 32;
+            if (t.life <= 0 || hit || t.pos.lengthSq() > 16000000) resetParticle(t);
+        });
+        lineSegments.geometry.attributes.position.needsUpdate = true;
+        lineSegments.geometry.attributes.color.needsUpdate = true;
+    }
+    controls.update();
+    renderer.render(scene, camera);
+}
+
+document.getElementById('fileInput').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        fieldData = JSON.parse(event.target.result);
+        document.getElementById('ui').classList.add('active');
+        document.getElementById('status-text').innerText = "Simulación Activa";
+    };
+    reader.readAsText(file);
+});
+
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+init();
+</script>
+</body>
+</html>
