@@ -194,6 +194,7 @@ function init() {
         trails.push({ pos: new THREE.Vector3(), history: [], life: 0 });
         resetParticle(trails[i]);
     }
+    loadFieldDataAuto();
     animate();
 }
 
@@ -277,6 +278,31 @@ function animate() {
     }
     controls.update();
     renderer.render(scene, camera);
+}
+
+async function loadFieldDataAuto() {
+    const statusText = document.getElementById('status-text');
+    const uiElement = document.getElementById('ui');
+
+    try {
+        statusText.innerText = "Cargando datos...";
+        
+        const response = await fetch('/data/field_map.json');
+        
+        if (!response.ok) {
+            throw new Error(`Error HTTP: ${response.status}`);
+        }
+
+        fieldData = await response.json();
+        
+        uiElement.classList.add('active');
+        statusText.innerText = "Simulación Activa";
+        console.log("Datos cargados automáticamente con éxito");
+
+    } catch (error) {
+        console.error("Error cargando el JSON:", error);
+        statusText.innerText = "Error al cargar datos";
+    }
 }
 
 document.getElementById('fileInput').addEventListener('change', (e) => {
